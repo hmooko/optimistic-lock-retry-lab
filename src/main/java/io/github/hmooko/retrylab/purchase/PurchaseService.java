@@ -45,6 +45,11 @@ public class PurchaseService {
         int maxRetries = resolveMaxRetries(maxRetriesOverride);
         long startedAt = System.nanoTime();
 
+        if (strategy == PurchaseStrategy.PESSIMISTIC) {
+            transactionService.purchasePessimistic(productId, txWorkMs);
+            return new PurchaseResponse(strategy, 1, 0, false, elapsedMicros(startedAt));
+        }
+
         int attempts = 0;
         int retries = 0;
         boolean firstAttemptConflict = false;

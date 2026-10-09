@@ -1,6 +1,6 @@
-# 낙관적 락 재시도 전략 — 제출 논문 재현용 코드 (n=30)
+# 낙관적 락 재시도 및 비관적 락 후속 비교 실험
 
-> **제출 논문 보존본:** 경합 수준에 따른 낙관적 락 재시도 전략의 성공률–지연시간 trade-off 분석. 이 브랜치는 제출 시점의 실험에 필요한 코드와 원본 데이터만 보존합니다. 새로운 정책 개발은 `main`에서 진행하고, `paper/submitted-n30-reproduction`은 제출 논문 검증용으로 유지합니다.
+> **제출 논문 기록 (1~7절):** 경합 수준에 따른 낙관적 락 재시도 전략의 성공률–지연시간 trade-off 분석. 이 브랜치는 제출 시점의 실험에 필요한 코드와 원본 데이터만 보존합니다. 새로운 정책 개발은 `main`에서 진행하고, `paper/submitted-n30-reproduction`은 제출 논문 검증용으로 유지합니다.
 
 ## 1. 연구 개요 (논문의 주요 내용)
 
@@ -196,3 +196,37 @@ python3 scripts/aggregate_paper.py \
 - **`paper/submitted-n30-reproduction`**: 제출 논문 원본 코드·JSON·README를 고정하는 재현용 브랜치. 앞으로 개발 변경을 병합하지 않습니다.
 - **`main`**: 이 브랜치와 동일한 상태에서 출발해 향후 실험·분석을 추가하는 개발 브랜치.
 - 실험용 DB 자격 증명은 `.env.example`에 더미 값만 남겼습니다. 기존 Git 히스토리에 과거 실험 설정이 남아 있을 수 있으므로 예전에 사용한 암호는 실제 서비스에 재사용하지 마세요.
+
+## 8. 후속 연구: Crossover와 Pessimistic Lock 비교
+
+이 main 개발 브랜치는 제출 논문에 없던 PESSIMISTIC_WRITE 전략을 추가합니다. 제출 논문을 동일한 코드로 재현하려면 paper/submitted-n30-reproduction 브랜치를 사용하세요.
+
+**목표:** RPS 68, 69, 70, 71, 72에서 낙관적 재시도 5가지와 비관적 row-lock 1가지를 동일 부하로 비교합니다. Baseline은 retries=0인 optimistic OCC에서 3회 보정 측정하고, 본 실험은 6가지 전략을 30회씩 반복하여 총 900 runs입니다.
+
+- HOT_SET=1, TX_WORK_MS=10, maxRetries=5 (pessimistic은 재시도 없음)
+- Warmup 20초, drain 10초, 측정 60초, 조건별 cooldown 10초
+- 주요 지표: final success %, success-only p99(ms), success throughput(RPS), failure %, retry amplification
+- 비관적 락은 DB row lock 대기 전략이므로 OCC first-attempt conflict rate를 직접 측정하는 개념이 아닙니다. 가로축은 동일 RPS의 retry-disabled optimistic baseline입니다.
+
+### 실행
+
+먼저 앱과 DB를 띄우고 load 서버에서 다음 명령을 수행합니다. 앱 주소는 사설 네트워크 IP로 변경하세요.
+
+```bash
+docker build -f Dockerfile.analysis -t retry-crossover-analysis:n30 .
+python3 scripts/crossover_runner.py --mode all --dry-run
+python3 scripts/crossover_runner.py --mode all --base-url http://APP_PRIVATE_IP:8080 --output-dir results/crossover-pessimistic-n30 --repetitions 30 --calibration-repetitions 3
+```
+
+장시간 실행 시 systemd 또는 tmux를 활용하면 SSH 연결과 독립적으로 실행할 수 있습니다. 유효한 JSON 결과는 다시 실행하지 않고, 파일이 누락되면 이어서 실행합니다. 실패한 k6 run은 한 번 더 시도하고 그래도 검증에 실패하면 중단합니다.
+
+### 결과 집계
+
+```bash
+python3 scripts/aggregate_crossover.py --input results/crossover-pessimistic-n30 --expected-n 30 --baseline-n 3
+docker run --rm -v "$PWD:/work" -w /work retry-crossover-analysis:n30 scripts/plot_crossover.py --input results/crossover-pessimistic-n30
+```
+
+산출물은 results/crossover-pessimistic-n30/analysis/ 폴더에 CSV와 그래프 4개로 저장됩니다. 95% 신뢰구간은 run 단위 bootstrap percentile 방식의 탐색적 추정치입니다.
+
+**데이터 보존:** 후속 실험 raw JSON과 로그는 results/에 기록되며 이 폴더는 gitignore 대상입니다. 실험 완료 후 새 결과를 별도 아카이브해야 합니다.

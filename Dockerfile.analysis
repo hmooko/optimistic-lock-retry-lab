@@ -1,0 +1,4 @@
+FROM python:3.12-slim
+RUN python -m pip --disable-pip-version-check -q install 'matplotlib>=3.8,<4'
+WORKDIR /work
+ENTRYPOINT ["python3"]

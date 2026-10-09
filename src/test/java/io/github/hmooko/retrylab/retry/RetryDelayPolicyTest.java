@@ -1,6 +1,7 @@
 package io.github.hmooko.retrylab.retry;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.hmooko.retrylab.purchase.PurchaseStrategy;
 import org.junit.jupiter.api.Test;
@@ -44,5 +45,11 @@ class RetryDelayPolicyTest {
             assertThat(policy.delayMillis(PurchaseStrategy.OPT_EXPONENTIAL_JITTER, 3))
                     .isBetween(20L, 60L);
         }
+    }
+
+    @Test
+    void pessimisticHasNoRetryPolicy() {
+        assertThatThrownBy(() -> policy.delayMillis(PurchaseStrategy.PESSIMISTIC, 0))
+                .isInstanceOf(IllegalArgumentException.class);
     }
 }
