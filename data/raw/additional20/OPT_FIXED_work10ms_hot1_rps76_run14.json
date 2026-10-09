@@ -1,0 +1,54 @@
+{
+  "metadata": {
+    "strategy": "OPT_FIXED",
+    "hotSet": 1,
+    "rate": 76,
+    "txWorkMs": 10,
+    "maxRetries": 5,
+    "warmup": "20s",
+    "warmupDrain": "10s",
+    "duration": "60s",
+    "durationSeconds": 60,
+    "repetition": 14,
+    "preAllocatedVUs": 1500,
+    "maxVUs": 3000
+  },
+  "metrics": {
+    "successCount": 3963,
+    "failureCount": 598,
+    "retryCount": 5414,
+    "firstAttemptConflictCount": 1512,
+    "firstAttemptConflictRate": 0.3315062486296865,
+    "throughputPerSecond": 66.05,
+    "p50LatencyMs": 20.95502,
+    "p95LatencyMs": 198.163526,
+    "p99LatencyMs": 203.75766239999996,
+    "successP50LatencyMs": 20.494193,
+    "successP95LatencyMs": 163.69408479999998,
+    "successP99LatencyMs": 202.46663748,
+    "failureP50LatencyMs": 195.65017999999998,
+    "failureP95LatencyMs": 202.9149231,
+    "failureP99LatencyMs": 205.82765037,
+    "retryAmplification": 1.3661367650769618,
+    "successfulRetryDepthCounts": [
+      3049,
+      289,
+      119,
+      226,
+      181,
+      99
+    ],
+    "successfulRetryDepthFractions": [
+      0.7693666414332576,
+      0.07292455210698966,
+      0.030027756749936917,
+      0.05702750441584658,
+      0.045672470350744385,
+      0.02498107494322483
+    ],
+    "failureRate": 0.13111159833369876,
+    "droppedIterations": 0,
+    "warmupDroppedIterations": 0,
+    "totalDroppedIterations": 0
+  }
+}

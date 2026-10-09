@@ -1,0 +1,30 @@
+{
+  "metadata": {
+    "strategy": "OPT_IMMEDIATE",
+    "hotSet": 1,
+    "rate": 64,
+    "txWorkMs": 10,
+    "maxRetries": 0,
+    "warmup": "15s",
+    "warmupDrain": "5s",
+    "duration": "30s",
+    "durationSeconds": 30,
+    "repetition": 2,
+    "preAllocatedVUs": 500,
+    "maxVUs": 1500
+  },
+  "metrics": {
+    "successCount": 1909,
+    "failureCount": 11,
+    "retryCount": 0,
+    "firstAttemptConflictCount": 11,
+    "firstAttemptConflictRate": 0.005729166666666666,
+    "throughputPerSecond": 63.63333333333333,
+    "p99LatencyMs": 25.79134992,
+    "retryAmplification": 0,
+    "failureRate": 0.005729166666666666,
+    "droppedIterations": 0,
+    "warmupDroppedIterations": 0,
+    "totalDroppedIterations": 0
+  }
+}
