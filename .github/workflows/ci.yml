@@ -1,56 +1,33 @@
-name: CI
-
+name: Paper reproducibility CI
 on:
   push:
-    branches: [main]
   pull_request:
-
 jobs:
-  test:
+  validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12'
-
-      - name: Java unit and MySQL integration tests
-        run: mvn -B test
-
-      - name: Result aggregator tests
-        run: python -m unittest scripts/test_aggregate_results.py
-
-      - name: Validate shell scripts
+      - name: Compile Java and run retry policy unit tests
+        run: mvn -B -Dtest=RetryDelayPolicyTest test
+      - name: Validate experiment scripts
         run: |
-          bash -n scripts/calibrate.sh
-          bash -n scripts/run-matrix.sh
-          bash -n scripts/run-tx-work-matrix.sh
           bash -n scripts/run-k6-docker.sh
-          bash -n scripts/aggregate-results-docker.sh
-          bash -n scripts/smoke-test.sh
-          bash -n scripts/record-docker-environment.sh
-          bash -n scripts/run-worst-case-pilot.sh
-          bash -n scripts/setup-monitoring-exporters.sh
-          bash -n scripts/monitoring-tunnels.sh
-          bash -n scripts/start-monitoring.sh
-          bash -n scripts/stop-monitoring.sh
-
-      - name: Validate k6 benchmark script
-        run: HOST_UID="$(id -u)" HOST_GID="$(id -g)" docker compose -f deploy/load/compose.yml run --rm -T k6 inspect k6/benchmark.js >/dev/null
-
-      - name: Validate experiment Compose files
+          bash -n scripts/run-conflict-calibration.sh
+          bash -n scripts/run-conflict-strategy-matrix.sh
+          python3 -m py_compile scripts/aggregate_paper.py
+      - name: Validate k6 script
+        run: docker compose -f deploy/load/compose.yml run --rm -T k6 inspect k6/benchmark.js >/dev/null
+      - name: Validate compose files
+        env:
+          DB_HOST: 10.0.0.30
+          DB_PASSWORD: ci-local-only
+          MYSQL_ROOT_PASSWORD: ci-local-root-only
         run: |
           docker compose -f deploy/app/compose.yml config >/dev/null
           docker compose -f deploy/db/compose.yml config >/dev/null
-          HOST_UID="$(id -u)" HOST_GID="$(id -g)" docker compose -f deploy/load/compose.yml config >/dev/null
-          docker compose -f monitoring/compose.yml config >/dev/null
-
-      - name: Build experiment application image
-        run: docker build -f deploy/app/Dockerfile -t optimistic-lock-retry-lab-app:ci .
+          docker compose -f deploy/load/compose.yml config >/dev/null

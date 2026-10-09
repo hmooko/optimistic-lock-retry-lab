@@ -3,4 +3,9 @@ target/
 *.iml
 .DS_Store
 .env
+.env.*
+!.env.example
 results/
+__pycache__/
+*.pyc
+.venv/

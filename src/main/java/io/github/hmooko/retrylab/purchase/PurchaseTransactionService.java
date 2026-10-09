@@ -26,25 +26,8 @@ public class PurchaseTransactionService {
         purchaseOptimisticInternal(productId, txWorkMs);
     }
 
-    @Transactional(isolation = Isolation.READ_COMMITTED)
-    public void purchasePessimistic(long productId) {
-        purchasePessimisticInternal(productId, 0L);
-    }
-
-    @Transactional(isolation = Isolation.READ_COMMITTED)
-    public void purchasePessimistic(long productId, long txWorkMs) {
-        purchasePessimisticInternal(productId, txWorkMs);
-    }
-
     private void purchaseOptimisticInternal(long productId, long txWorkMs) {
         Product product = productRepository.findById(productId)
-                .orElseThrow(() -> notFound(productId));
-        product.decreaseStock();
-        simulateBusinessWork(txWorkMs);
-    }
-
-    private void purchasePessimisticInternal(long productId, long txWorkMs) {
-        Product product = productRepository.findByIdForUpdate(productId)
                 .orElseThrow(() -> notFound(productId));
         product.decreaseStock();
         simulateBusinessWork(txWorkMs);

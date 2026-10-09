@@ -15,6 +15,7 @@ public class ApiExceptionHandler {
                 "strategy", exception.getStrategy().name(),
                 "attempts", exception.getAttempts(),
                 "retries", exception.getRetries(),
+                "firstAttemptConflict", true,
                 "elapsedMicros", exception.getElapsedMicros()
         ));
     }

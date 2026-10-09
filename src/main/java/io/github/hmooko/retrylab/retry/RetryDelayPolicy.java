@@ -21,7 +21,6 @@ public class RetryDelayPolicy {
             case OPT_FIXED_JITTER -> jitter(settings.fixedDelayMs());
             case OPT_EXPONENTIAL -> exponentialDelay(retryIndex);
             case OPT_EXPONENTIAL_JITTER -> jitter(exponentialDelay(retryIndex));
-            case PESSIMISTIC -> throw new IllegalArgumentException("PESSIMISTIC has no retry delay");
         };
     }
 

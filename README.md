@@ -1,367 +1,126 @@
-# Optimistic Lock Retry Lab
+# Optimistic Lock Retry Lab — Submitted Paper (n=30)
 
-A reproducible Spring Boot benchmark for studying optimistic-lock retry policies under increasing data contention.
+This branch preserves only code needed to reproduce the submitted paper:
+"낙관적 락 재시도에서 경합 수준에 따른 성공률-지연시간 Trade-off 분석".
+Legacy pilots, pessimistic-lock comparisons and monitoring dashboards have
+been removed. The 5 optimistic strategies and the measurement extension
+from the working tree of the final study have been retained.
 
-## Compared strategies
+## Experimental conditions
 
-| ID | Policy |
-| --- | --- |
-| PESSIMISTIC | DB pessimistic write lock |
-| OPT_IMMEDIATE | retry immediately |
-| OPT_FIXED | fixed 20 ms backoff |
-| OPT_FIXED_JITTER | fixed backoff with +/-50% uniform jitter |
-| OPT_EXPONENTIAL | 5, 10, 20, 40, 80 ms capped exponential backoff |
-| OPT_EXPONENTIAL_JITTER | exponential backoff with +/-50% uniform jitter |
+- 5 strategies: OPT_IMMEDIATE, OPT_FIXED, OPT_FIXED_JITTER,
+  OPT_EXPONENTIAL, OPT_EXPONENTIAL_JITTER
+- HOT_SET=1, TX_WORK_MS=10 (synthetic delay within transaction)
+- 5 retries maximum; fixed 20ms, exponential 5/10/20/40/80ms;
+  jitter = +/-50% applied to the respective base wait
+- RPS 64 / 68 / 72 / 76 / 88; original pre-retry first-attempt OCC
+  conflict rates 0.57% / 3.23% / 11.38% / 24.99% / 41.01%
+- 10 runs per condition in the first cohort and 20 more in the second;
+  25 conditions and 750 runs total
+- Each run: warmup 20s, drain 10s, measurement 60s.
+  Execution order is shuffled within each repetition.
 
-All optimistic strategies allow at most 5 retries.
+These baseline rates describe a specific workload and are not universal
+contention percentages. The x-axis uses the original calibrated values.
 
-## Experiment topology
+## Provenance
 
-Use three separate Linux servers in the same private network.
+Load server: experiment/conflict-rate based on 017f4ba with uncommitted
+k6 success-only/failure-only latency and retry-depth measurement extensions.
+App server: main 0dbfeb7 with 4 uncommitted Java changes for
+maxRetries override and firstAttemptConflict. Both sets of changes
+were incorporated into this branch. Removing unused pessimistic methods
+does not change the 5 optimistic strategies, but the snapshot is not
+byte-for-byte identical to the original full application.
 
-| Server | Resource budget | Container |
-| --- | ---: | --- |
-| Load | 2 vCPU / 2 GB / 15 GB | k6 |
-| App | 2 vCPU / 4 GB / 20 GB | Spring Boot |
-| DB | 3 vCPU / 8 GB / 55 GB | MySQL |
-| Headroom | 1 vCPU / 2 GB / 10 GB | unused |
+## Three-server setup
 
-Suggested private IPs:
+Use separate Docker hosts for load (k6), app (Spring Boot/JPA), and
+DB (MySQL). The pinned images and resource settings are in deploy/.
+On DB and App hosts, copy .env.example to .env and set DB_HOST to the
+private DB IP and secure, matching DB_PASSWORD values; set the private
+MYSQL_ROOT_PASSWORD on the DB host. Do not commit .env.
 
-    Load  10.0.0.10
-    App   10.0.0.20
-    DB    10.0.0.30
+On DB server:
 
-The experiment containers use Docker host networking.
-
-## Disposable experiment credentials
-
-This repository intentionally contains fixed credentials for this short-lived isolated benchmark:
-
-    database: retry_lab
-    username: retry_lab
-    password: retry-lab-2026
-    root password: root-retry-lab-2026
-
-These values are not secrets and must not be reused for any real service or account.
-
-Network isolation is still required:
-
-- DB TCP 3306: allow only from the App server private IP.
-- App TCP 8080: allow only from the Load server private IP and, if necessary, the administrator IP.
-- Do not expose MySQL TCP 3306 to the public Internet.
-
-No App/DB `.env` file is required.
-
-## Pinned experiment environment
-
-- Java runtime: Eclipse Temurin 21.0.12_8 JRE
-- build: Maven 3.9.16 + Java 21
-- Spring Boot: 4.1.1
-- MySQL: 8.4.11
-- k6: 2.3.0
-- k6 calibration defaults: 500 pre-allocated VUs (maximum 1000 per scenario)
-- k6 main matrix: 1500 pre-allocated VUs (maximum 3000 per scenario)
-- Node Exporter: 1.12.1
-- Prometheus: 3.15.0
-- Grafana OSS: 13.2.2
-- result aggregation: Python 3.12 container
-
-## 1. Install Docker and Git
-
-Install Docker Engine, Docker Compose plugin, and Git on all three servers.
-
-After Docker installation, make sure the experiment user can run:
-
-    docker ps
-    docker compose version
-
-Clone the repository on every server:
-
-    git clone https://github.com/hmooko/optimistic-lock-retry-lab.git retry-lab
-    cd retry-lab
-
-Use the same Git revision on all three servers.
-
-## 2. Database server
-
-On the DB server:
-
-    cd retry-lab
-    sudo mkdir -p /data/mysql
-
-Pull and start MySQL:
-
-    docker compose -f deploy/db/compose.yml pull
     docker compose -f deploy/db/compose.yml up -d
 
-Check:
-
-    docker compose -f deploy/db/compose.yml ps
-    docker logs retry-lab-mysql --tail 50
-
-The DB experiment configuration is fixed in Git:
-
-- MySQL 8.4.11
-- 3 CPU / 8 GB container limit
-- READ COMMITTED
-- 4 GB InnoDB buffer pool
-- `innodb_flush_log_at_trx_commit=1`
-- binary log disabled
-- data directory: `/data/mysql`
-
-If the DB disk is mounted somewhere else, override only the path:
-
-    MYSQL_DATA_DIR=/other/path     docker compose -f deploy/db/compose.yml up -d
-
-## 3. Application server
-
-The default DB host is `10.0.0.30`.
-
-If your DB server uses that address:
+On App server:
 
     docker compose -f deploy/app/compose.yml up -d --build
-
-If the DB private IP is different:
-
-    DB_HOST=10.0.1.30     docker compose -f deploy/app/compose.yml up -d --build
-
-Verify:
-
-    docker compose -f deploy/app/compose.yml ps
-    docker logs retry-lab-app --tail 100
     curl http://127.0.0.1:8080/actuator/health
 
-The App experiment settings are fixed in Git:
+The admin reset API is benchmark-only and must never be public.
 
-- 2 CPU / 4 GB container limit
-- JVM heap 2 GB
-- HikariCP max pool 32
-- HikariCP minimum idle 8
-- Tomcat max threads 200
-- max retries 5
-- fixed backoff 20 ms
-- exponential base 5 ms
-- exponential cap 80 ms
-- jitter +/-50%
+## Calibration (maxRetries=0, 3 repetitions)
 
-## 4. Load server
+On load server (replace APP_PRIVATE_IP):
 
-Pull the pinned k6 and Python images:
+    BASE_URL=http://APP_PRIVATE_IP:8080 \
+      RATES="64 68 72 76 88" HOT_SET=1 TX_WORK_MS=10 REPETITIONS=3 \
+      bash scripts/run-conflict-calibration.sh
 
-    docker compose -f deploy/load/compose.yml pull
+This produces a baseline summary TSV. A different deployment may yield
+different calibration results even with the same RPS.
 
-Check k6:
+## Repeat the n=30 study
 
-    bash scripts/run-k6-docker.sh version
+Run both cohorts in separate output directories to preserve all files.
+The driver uses the 5 optimistic strategies and MAX_RETRIES=5.
 
-No host k6 or Python installation is required.
+    BASE_URL=http://APP_PRIVATE_IP:8080 RATES="64 68 72 76 88" \
+      HOT_SET=1 TX_WORK_MS=10 REPETITIONS=10 \
+      WARMUP=20s WARMUP_DRAIN=10s DURATION=60s \
+      PRE_ALLOCATED_VUS=1500 MAX_VUS=3000 \
+      OUTDIR=results/work10-first10 \
+      bash scripts/run-conflict-strategy-matrix.sh
 
-## 5. Smoke test
+    BASE_URL=http://APP_PRIVATE_IP:8080 RATES="64 68 72 76 88" \
+      HOT_SET=1 TX_WORK_MS=10 REPETITIONS=20 \
+      WARMUP=20s WARMUP_DRAIN=10s DURATION=60s \
+      PRE_ALLOCATED_VUS=1500 MAX_VUS=3000 \
+      OUTDIR=results/work10-additional20 \
+      bash scripts/run-conflict-strategy-matrix.sh
 
-Assuming the App server is `10.0.0.20`:
+## Aggregate original metrics and regenerate figures
 
-    BASE_URL=http://10.0.0.20:8080     bash scripts/smoke-test.sh
+    python3 scripts/aggregate_paper.py \
+      --input results/work10-first10 results/work10-additional20 \
+      --out results/paper-n30 --expected-n 30
 
-Check:
+    python3 -m pip install -r requirements-analysis.txt
+    python3 scripts/plot_paper.py \
+      --input results/paper-n30 --out results/paper-n30/figures
 
-    cat results/smoke.json
+The aggregator checks all 750 JSONs, verifies consistent workload settings,
+zero dropped iterations, and retry-depth totals. It produces:
+- paper_metrics.csv: run-wise medians and inclusive-method IQRs
+- paper_rps88_retry_depth.csv: RPS88 requests pooled over 30 runs
+- paper_runs.csv: per-run flattened metrics
 
-Make sure `droppedIterations` is 0.
+The compact paper-data folder contains the original 25-row metrics CSV
+and 5-row pooled retry-depth CSV generated from the 750 completed runs.
+Recreate the graphs from these without rerunning the 750 experiments:
 
-## 6. Calibration
+    python3 scripts/plot_paper.py --input paper-data \
+      --out results/original-paper-figures
 
-Run:
+The raw experimental JSONs are intentionally not included in git and remain
+on the original load server at:
+- ~/retry-lab/results/full-metrics-work10-10rep
+- ~/retry-lab/results/full-metrics-work10-additional20
 
-    BASE_URL=http://10.0.0.20:8080     bash scripts/calibrate.sh
+The compact CSV files do not replace raw JSONs for per-run audit.
 
-Default offered rates:
+Success rate = successful logical requests / all completed requests.
+Success-only p99 = p99 latency among successful logical requests.
+Retry amplification = total retry attempts / total successful requests.
+Retry-depth fractions are pooled counts over all requests at RPS=88,
+not medians of run-level percentages.
 
-    100 200 300 400 500 600 RPS
+## Scope
 
-If 600 RPS is still well below saturation:
+This archive is only for the submitted paper. It omits old txWork
+sweeps, pessimistic experiments, unrelated benchmark scripts,
+monitoring services and exploratory reports.
 
-    BASE_URL=http://10.0.0.20:8080     RATES="800 1000 1200 1400"     bash scripts/calibrate.sh
-
-Calibration uses `HOT_SET=1000` and `OPT_IMMEDIATE`. k6 pre-allocates 500 VUs so transient VU allocation does not create artificial dropped iterations before the target system is saturated.
-
-Choose approximately 80% of the highest stable offered rate while checking:
-
-- measurement-phase `droppedIterations = 0`
-- Load CPU is not saturated
-- App CPU is not saturated
-- DB CPU and I/O are not saturated
-
-The structured result JSON reports:
-- `droppedIterations`: measurement-phase dropped iterations only
-- `warmupDroppedIterations`: warm-up dropped iterations
-- `totalDroppedIterations`: warm-up + measurement dropped iterations
-
-After choosing a candidate RATE, validate it under the worst contention level before starting the full matrix:
-
-    BASE_URL=http://10.0.0.20:8080 RATE=1000 \
-      bash scripts/run-worst-case-pilot.sh
-
-The worst-case pilot runs all six strategies at `HOT_SET=1`, using 1500 pre-allocated VUs and a maximum of 3000 VUs per scenario by default. A 10-second warm-up drain window separates the end of offered warm-up load from the start of measurement so long-running warm-up requests do not overlap the measured phase. All six runs must finish with measurement-phase `droppedIterations = 0`. Override `PRE_ALLOCATED_VUS` or `MAX_VUS` only during pilot validation if necessary, and keep the chosen values fixed for the measured experiment.
-
-After choosing the final RATE and VU settings, do not change the experiment configuration until all measured runs are complete.
-
-## 7. Optional live monitoring from macOS
-
-For the experiment setup used in this repository, Prometheus and Grafana run on the MacBook while lightweight Node Exporter containers run on the three Linux servers. Metrics travel through SSH tunnels, so ports 9100 and 8080 do not need to be opened publicly.
-
-Prerequisites on the MacBook:
-
-- Docker Desktop is running.
-- VPN access to the experiment private network is active.
-- SSH key authentication works for the aliases `retry-app`, `retry-db`, and `retry-load`.
-
-Update all three server repositories to the latest `main` revision and install or refresh Node Exporter:
-
-    bash scripts/setup-monitoring-exporters.sh
-
-The setup script connects to `retry-app`, `retry-db`, and `retry-load`, requires each remote checkout to be on a clean `main` branch, runs `git pull --ff-only origin main`, prints the resulting Git revision, and then starts Node Exporter. If a server has tracked local changes or is on another branch, the script stops instead of silently changing the experiment environment.
-
-Start the SSH tunnels, Prometheus, and Grafana:
-
-    bash scripts/start-monitoring.sh
-
-Open:
-
-    Grafana:    http://localhost:3000
-    Prometheus: http://localhost:9090/targets
-
-Grafana login:
-
-    username: admin
-    password: retry-lab-grafana
-
-The Prometheus data source and the `Retry Lab Monitoring` dashboard are provisioned automatically. The dashboard includes host CPU, memory, disk I/O, network I/O, JVM heap, HikariCP connections, GC activity, and scrape-target status.
-
-Check tunnel status:
-
-    bash scripts/monitoring-tunnels.sh status
-
-Stop local monitoring:
-
-    bash scripts/stop-monitoring.sh
-
-If different SSH aliases are used, override them:
-
-    APP_SSH=my-app DB_SSH=my-db LOAD_SSH=my-load \
-      bash scripts/setup-monitoring-exporters.sh
-
-    APP_SSH=my-app DB_SSH=my-db LOAD_SSH=my-load \
-      bash scripts/start-monitoring.sh
-
-Monitoring metrics are diagnostic only. Paper result metrics such as throughput, p99 latency, retry amplification, and final failure rate continue to come from the k6 result JSON files. Keep the monitoring configuration unchanged across all measured runs.
-
-## 8. Record environment
-
-Before the final experiment:
-
-DB server:
-
-    bash scripts/record-docker-environment.sh db
-
-App server:
-
-    bash scripts/record-docker-environment.sh app
-
-Load server:
-
-    bash scripts/record-docker-environment.sh load
-
-Keep the generated `results/environment/` files with the experiment artifacts.
-
-## 9. Main experiment
-
-Candidate final offered rate: 800 RPS. Revalidate the worst-case HOT_SET=1 pilot after any change to the warm-up/measurement boundary or VU capacity before starting the measured matrix.
-
-Run:
-
-    BASE_URL=http://10.0.0.20:8080 \
-      RATE=800 \
-      bash scripts/run-matrix.sh
-
-The main-matrix script defaults to the validated VU capacity:
-
-    WARMUP_DRAIN=10s
-    PRE_ALLOCATED_VUS=1500
-    MAX_VUS=3000
-
-These values may be overridden explicitly, but they should remain fixed across all measured runs.
-
-The matrix is:
-
-    6 strategies x 4 contention levels x 5 repetitions = 120 runs
-
-Contention levels:
-
-| Level | Hot set |
-| --- | ---: |
-| Low | 100 |
-| Medium | 20 |
-| High | 5 |
-| Extreme | 1 |
-
-Each run uses:
-
-- 20 s warm-up offered load
-- 10 s warm-up drain window
-- 60 s measurement
-- 10 s pause
-
-The 24 strategy/hot-set combinations are shuffled for each repetition.
-
-All final runs should have measurement-phase `droppedIterations = 0`. Warm-up dropped iterations are recorded separately and are not used as the validity threshold.
-
-## 10. Aggregate results
-
-Run on the Load server:
-
-    bash scripts/aggregate-results-docker.sh
-
-Outputs:
-
-    results/runs.csv
-    results/summary.csv
-
-The summary contains median, mean, standard deviation, Q1, and Q3 for:
-
-- successful throughput
-- p99 latency
-- retry amplification
-- final failure rate
-
-Recommended paper figures:
-
-1. contention vs retry amplification
-2. contention vs successful throughput
-3. contention vs p99 latency
-
-## Correctness verification
-
-CI verifies:
-
-- Java unit tests
-- MySQL Testcontainers concurrency integration tests
-- result aggregation tests
-- shell syntax
-- Docker Compose configuration
-- application Docker image build
-
-The concurrency integration test checks all six strategies and verifies that committed stock/version changes match successful transactions.
-
-## Repository layout
-
-    deploy/app/                    Spring Boot Docker deployment
-    deploy/db/                     MySQL Docker deployment
-    deploy/load/                   k6/Python Docker tools
-    k6/benchmark.js                constant-arrival-rate workload
-    scripts/smoke-test.sh          smoke test
-    scripts/calibrate.sh           load calibration
-    scripts/run-worst-case-pilot.sh six-strategy HOT_SET=1 validation
-    scripts/run-matrix.sh          120-run experiment matrix
-    scripts/aggregate-results-docker.sh
-    scripts/record-docker-environment.sh

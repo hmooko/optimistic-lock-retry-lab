@@ -20,8 +20,10 @@ public class PurchaseController {
     public ResponseEntity<PurchaseResponse> purchase(
             @PathVariable long productId,
             @RequestParam PurchaseStrategy strategy,
-            @RequestParam(defaultValue = "0") long txWorkMs
+            @RequestParam(defaultValue = "0") long txWorkMs,
+            @RequestParam(required = false) Integer maxRetries
     ) {
-        return ResponseEntity.ok(purchaseService.purchase(productId, strategy, txWorkMs));
+        return ResponseEntity.ok(
+                purchaseService.purchase(productId, strategy, txWorkMs, maxRetries));
     }
 }

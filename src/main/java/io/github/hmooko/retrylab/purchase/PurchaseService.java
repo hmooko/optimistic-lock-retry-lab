@@ -11,6 +11,7 @@ import org.springframework.web.server.ResponseStatusException;
 @Service
 public class PurchaseService {
     private static final long MAX_TX_WORK_MS = 1_000L;
+    private static final int MAX_RETRIES_OVERRIDE = 100;
 
     private final PurchaseTransactionService transactionService;
     private final RetryDelayPolicy retryDelayPolicy;
@@ -27,28 +28,43 @@ public class PurchaseService {
     }
 
     public PurchaseResponse purchase(long productId, PurchaseStrategy strategy) {
-        return purchase(productId, strategy, 0L);
+        return purchase(productId, strategy, 0L, null);
     }
 
     public PurchaseResponse purchase(long productId, PurchaseStrategy strategy, long txWorkMs) {
-        validateTxWorkMs(txWorkMs);
-        long startedAt = System.nanoTime();
+        return purchase(productId, strategy, txWorkMs, null);
+    }
 
-        if (strategy == PurchaseStrategy.PESSIMISTIC) {
-            transactionService.purchasePessimistic(productId, txWorkMs);
-            return new PurchaseResponse(strategy, 1, 0, elapsedMicros(startedAt));
-        }
+    public PurchaseResponse purchase(
+            long productId,
+            PurchaseStrategy strategy,
+            long txWorkMs,
+            Integer maxRetriesOverride
+    ) {
+        validateTxWorkMs(txWorkMs);
+        int maxRetries = resolveMaxRetries(maxRetriesOverride);
+        long startedAt = System.nanoTime();
 
         int attempts = 0;
         int retries = 0;
+        boolean firstAttemptConflict = false;
 
         while (true) {
             attempts++;
             try {
                 transactionService.purchaseOptimistic(productId, txWorkMs);
-                return new PurchaseResponse(strategy, attempts, retries, elapsedMicros(startedAt));
+                return new PurchaseResponse(
+                        strategy,
+                        attempts,
+                        retries,
+                        firstAttemptConflict,
+                        elapsedMicros(startedAt));
             } catch (OptimisticLockingFailureException conflict) {
-                if (retries >= retrySettings.maxRetries()) {
+                if (attempts == 1) {
+                    firstAttemptConflict = true;
+                }
+
+                if (retries >= maxRetries) {
                     throw new RetryExhaustedException(
                             strategy, attempts, retries, elapsedMicros(startedAt), conflict);
                 }
@@ -66,6 +82,18 @@ public class PurchaseService {
                     HttpStatus.BAD_REQUEST,
                     "txWorkMs must be between 0 and " + MAX_TX_WORK_MS);
         }
+    }
+
+    private int resolveMaxRetries(Integer maxRetriesOverride) {
+        if (maxRetriesOverride == null) {
+            return retrySettings.maxRetries();
+        }
+        if (maxRetriesOverride < 0 || maxRetriesOverride > MAX_RETRIES_OVERRIDE) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "maxRetries must be between 0 and " + MAX_RETRIES_OVERRIDE);
+        }
+        return maxRetriesOverride;
     }
 
     private void sleep(long delayMillis) {
